@@ -50,88 +50,80 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result. You can start editing the page by modifying `src/pages/index.tsx`.=
 
-# Technical Interview Challenge: TikTok Data Pipeline
+# Technical Interview Challenge: Medical Claims Documentation Pipeline
 
 ## Overview
-In this challenge, you'll be working with a mock TikTok API service to build a data pipeline that processes video data for our analytics dashboard. The challenge involves working with background jobs, API integration, and data transformation.
+You'll be building a critical data pipeline that processes and correlates Medicare documentation requests with patient records and billing information. The system needs to handle various types of incoming Medicare files (pre-payment reviews, post-payment reviews, documentation requests) and match them with the appropriate patient encounters and billing records.
+
+The challenge involves working with our MockMedicareService to build a scalable system that can process hundreds of documentation requests per hour while maintaining data consistency and providing real-time status updates to healthcare providers.
 
 ## Requirements
 
 ### 1. Background Job Setup (Required)
-- Set up Sidekiq in the Rails application
-- Create a worker that fetches data from our MockTiktokService
-- Configure the worker to run every 30 minutes
+- Set up a Next.js API route with Vercel Cron to periodically fetch new file notifications
+- Create a worker that processes the Medicare file notifications every 15 minutes
+- Implement proper error handling and retry mechanisms for failed jobs
+- Track job status and maintain an audit log of processing attempts
 
 ### 2. Data Transformation (Required)
-The worker should transform the TikTok video data into the following format before saving:
+Transform the Medicare file notifications into a normalized format that correlates patient, claim, and document information:
 
-```ruby
+```typescript
 {
-    video_id: String, # TikTok's video ID
-    creator: {
-        username: String, # Creator's username
-        region: String # Creator's region code
-    },
-    performance: {
-        views: Integer, # Total views
-        likes: Integer, # Total likes
-        engagement_rate: Float, # (likes + comments + shares) / views 100
-        trending_score: Integer # Algorithm-based score (explained below)
-    },
-    content: {
-        description: String, # Video description
-        duration: Integer, # Video duration in seconds
-        hashtags: Array<String>, # Array of hashtag names
-        category: String # Video label category
-    },
-    timestamps: {
-        created_at: DateTime, # TikTok creation timestamp
-        ingested_at: DateTime # When our system processed it
+  correlationId: string, // Unique identifier for the correlated records
+  notification: {
+    id: string,
+    receivedAt: DateTime,
+    type: 'PREPAYMENT' | 'POSTPAYMENT' | 'ADR' | 'AUDIT',
+    priority: number,
+    status: string
+  },
+  patient: {
+    medicareId: string,
+    encounters: Array<{
+      dateOfService: DateTime,
+      facility: string,
+      claimNumber: string
+    }>,
+    documents: Array<{
+      type: string,
+      status: string,
+      required: boolean,
+      receivedDate: DateTime | null
+    }>
+  },
+  appeal: {
+    deadline: DateTime,
+    denialReason?: string,
+    deniedAmount?: number,
+    recoveryStatus?: string,
+    completeness: {
+      hasClinicRecords: boolean,
+      hasBillingInfo: boolean,
+      missingDocuments: string[]
     }
+  },
+  metadata: {
+    processingStatus: 'PENDING' | 'PROCESSING' | 'COMPLETE' | 'ERROR',
+    lastProcessed: DateTime,
+    requiresUserAction: boolean,
+    userActionDetails?: string
+  }
 }
 ```
 
-
-#### Trending Score Algorithm
-
-The trending score is a number from 0-100 that combines three factors about a video's performance. Here's exactly how to calculate it:
-
-1. **View Velocity (40% of final score)**
-   - Calculate views per hour since the video was posted.
-   - If views/hour is 1000 or higher, score is 100.
-   - If views/hour is 0, score is 0.
-   - Otherwise: `score = (views per hour / 1000) * 100`.
-
-2. **Engagement Rate (35% of final score)**
-   - Calculate total engagements: (likes + comments + shares).
-   - Calculate engagement rate: `(total engagements / views) * 100`.
-   - If engagement rate is 15% or higher, score is 100.
-   - If engagement rate is 0%, score is 0.
-   - Otherwise: `score = (engagement rate / 15) * 100`.
-
-3. **Recency (25% of final score)**
-   - If video is less than 6 hours old, score is 100.
-   - If video is more than 72 hours old, score is 0.
-   - Otherwise: `score = ((72 - hours_since_posted) / 72) * 100`.
-
-The final trending score is calculated as:
-`(view_velocity_score * 0.4) + (engagement_score * 0.35) + (recency_score * 0.25)`
-
-Round the final score to the nearest integer and ensure it stays within the 0-100 range.
-
-**Example:**
-A video has 2000 views/hour (100 points), 10% engagement rate (67 points), and is 12 hours old (83 points).
-Final score = `(100 * 0.4) + (67 * 0.35) + (83 * 0.25) = 84`
-
 ### 3. API Endpoints (Required)
 
-#### `GET /api/v1/videos`
-Lists processed videos with pagination.
+#### `GET /api/v1/appeals`
+List all appeals with pagination and filtering.
 
 **Query Parameters:**
 - `page` (integer, default: 1)
 - `per_page` (integer, default: 20)
-- `sort_by` (string, optional: 'trending_score', 'views', 'created_at')
+- `status` (string, optional: 'PENDING', 'PROCESSING', 'COMPLETE', 'ERROR')
+- `type` (string, optional: 'PREPAYMENT', 'POSTPAYMENT', 'ADR', 'AUDIT')
+- `requires_action` (boolean, optional)
+- `sort_by` (string, optional: 'deadline', 'receivedAt', 'deniedAmount')
 - `sort_direction` (string, optional: 'asc', 'desc')
 
 **Response:**
@@ -139,167 +131,92 @@ Lists processed videos with pagination.
 {
   "data": [
     {
-      "video_id": "1234567890",
-      "creator": {
-        "username": "dancequeen",
-        "region": "US"
+      "correlationId": "CORR-123",
+      "notification": {
+        "id": "NOTIF-123",
+        "receivedAt": "2024-03-15T14:30:00Z",
+        "type": "PREPAYMENT",
+        "priority": 3,
+        "status": "PENDING"
       },
-      "performance": {
-        "views": 1500000,
-        "likes": 250000,
-        "engagement_rate": 12.5,
-        "trending_score": 84
+      "patient": {
+        "medicareId": "MBI123456789",
+        "encounters": [
+          {
+            "dateOfService": "2024-02-15T00:00:00Z",
+            "facility": "FACILITY-123",
+            "claimNumber": "CLM123456789"
+          }
+        ]
       },
-      "content": {
-        "description": "Check this out! #fyp #dance",
-        "duration": 45,
-        "hashtags": ["fyp", "dance"],
-        "transcript": "Hey everyone, welcome back to my channel",
-        "category": "entertainment"
+      "appeal": {
+        "deadline": "2024-04-15T14:30:00Z",
+        "deniedAmount": 1500.00,
+        "completeness": {
+          "hasClinicRecords": true,
+          "hasBillingInfo": false,
+          "missingDocuments": ["OPERATIVE_REPORT"]
+        }
       },
-      "timestamps": {
-        "created_at": "2024-03-15T14:30:00Z",
-        "ingested_at": "2024-03-15T14:35:00Z"
+      "metadata": {
+        "processingStatus": "PENDING",
+        "lastProcessed": "2024-03-15T14:35:00Z",
+        "requiresUserAction": true,
+        "userActionDetails": "Missing billing information"
       }
     }
-    // ... more videos
   ],
   "meta": {
     "current_page": 1,
     "total_pages": 5,
-    "total_count": 100,
+    "total_items": 100,
     "per_page": 20
   }
 }
 ```
 
-#### `GET /api/v1/videos/:id`
-Get detailed information about a specific video.
+[Additional API endpoint specifications...]
 
-**Response:**
-```json
-{
-  "data": {
-    "video_id": "1234567890",
-    "creator": {
-      "username": "dancequeen",
-      "region": "US"
-    },
-    "performance": {
-      "views": 1500000,
-      "likes": 250000,
-      "comments": 15000,
-      "shares": 10000,
-      "engagement_rate": 12.5,
-      "trending_score": 84,
-      "favorites": 45000
-    },
-    "content": {
-      "description": "Check this out! #fyp #dance",
-      "duration": 45,
-      "hashtags": ["fyp", "dance"],
-      "transcript": "Hey everyone, welcome back to my channel",
-      "category": "entertainment",
-      "effects": ["123456", "789012"],
-      "mentions": ["user123", "user456"]
-    },
-    "timestamps": {
-      "created_at": "2024-03-15T14:30:00Z",
-      "ingested_at": "2024-03-15T14:35:00Z"
-    }
-  }
-}
-```
-
-#### `GET /api/v1/analytics`
-Get aggregated statistics across all processed videos.
-
-**Query Parameters:**
-- `time_range` (string, optional: 'day', 'week', 'month', default: 'day')
-
-**Response:**
-```json
-{
-  "data": {
-    "total_videos": 1500,
-    "total_views": 25000000,
-    "average_engagement_rate": 8.5,
-    "trending_videos": {
-      "count": 150,
-      "threshold": 80
-    },
-    "top_hashtags": [
-      {
-        "name": "fyp",
-        "count": 450,
-        "total_views": 8500000
-      },
-      {
-        "name": "dance",
-        "count": 280,
-        "total_views": 5200000
-      }
-    ],
-    "region_distribution": {
-      "US": 450,
-      "JP": 280,
-      "GB": 225
-    },
-    "category_performance": [
-      {
-        "name": "entertainment",
-        "video_count": 500,
-        "average_trending_score": 75,
-        "total_views": 9500000
-      }
-    ]
-  },
-  "meta": {
-    "time_range": "day",
-    "generated_at": "2024-03-15T15:00:00Z"
-  }
-}
-```
-
-### 4. Database Design (Required)
-- Design and implement the necessary database schema
+### 4. Database Schema (Required)
+- Design and implement the necessary database schema for storing correlated records
 - Include appropriate indexes for efficient querying
-- Write migrations for the schema
+- Implement proper relationships between notification, patient, and appeal records
 
 ### 5. Front-end Components (Bonus)
-- Create a React component to display the video list
-- Implement a video details modal/page
-- Add basic analytics visualizations
+- Create a React component to display the appeals dashboard
+- Implement filtering and sorting controls
+- Add a detailed view modal showing all correlated information
+- Include visualizations for appeal deadlines and completion status
 
 ## Evaluation Criteria
 We'll evaluate your submission based on:
-- Code organization and quality
-- Background job implementation
-- Data transformation logic
+- Data correlation and transformation logic
+- Background job implementation and error handling
 - API design and implementation
 - Database schema design
+- Code organization and quality
 - Test coverage
-- Bonus: Front-end implementation
+- Documentation
 
 ## Getting Started
-1. The mock TikTok service is available in:
-ruby:app/services/mock_tiktok_service.rb
-startLine: 1
-endLine: 105
-
+1. The mock Medicare service is available in the provided code
 2. Use the service by calling:
-    ```ruby
-    MockTiktokService.generate_mock_response
-    ```
+```typescript
+const medicareService = new MockMedicareService();
+const notifications = await medicareService.getFileNotificationBatch();
+```
+
+## Tips
+- Focus on the core requirements first
+- Consider edge cases in data correlation
+- Document your assumptions about matching logic
+- Include error handling for incomplete or invalid data
+- Optimize database queries for performance
 
 ## Submission
 - Create a new branch for your work
 - Submit a pull request with your implementation
-- Include any necessary documentation
-- Add tests for your code
+- Include documentation explaining your design decisions
+- Add tests for your correlation logic
 
-## Tips
-- Focus on the core requirements first
-- Use Ruby/Rails best practices
-- Consider error handling and edge cases
-- Document any assumptions you make
+This challenge tests your ability to build a robust data pipeline while handling the complexities of healthcare data correlation and processing.
