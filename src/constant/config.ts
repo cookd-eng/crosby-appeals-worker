@@ -1,7 +1,7 @@
 export const siteConfig = {
-  title: 'Next.js + Tailwind CSS + TypeScript Starter',
+  title: 'Crosby Health - Medical Claims Documentation Pipeline',
   description:
-    'A starter for Next.js, Tailwind CSS, and TypeScript with Absolute Import, Seo, Link component, pre-configured with Husky',
+    'a system that processes and correlates Medicare documentation requests with patient records and billing information',
   /** Without additional '/' on the end, e.g. https://theodorusclarence.com */
-  url: 'https://tsnext-tw.thcl.dev',
+  url: 'https://crosbyhealth.com',
 };
